@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="SkyCast — A full-featured weather app with hourly & 14-day forecasts, AQI, interactive maps, dark mode, and more." />
+  <meta name="theme-color" content="#ff6b35" />
+  <title>SkyCast — Weather Everywhere</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌤️</text></svg>" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body class="bg-day-clear">
+
+  <!-- ── Loading Overlay ─────────────────────────────────────────────────── -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <p class="loading-text">Fetching weather data…</p>
+  </div>
+
+  <!-- ── Error Toast ─────────────────────────────────────────────────────── -->
+  <div id="error-toast" role="alert"></div>
+
+  <!-- ── Location Status Bar ────────────────────────────────────────────── -->
+  <div id="loc-status-bar" class="loc-status-bar" role="alert" aria-live="polite"></div>
+
+  <!-- ── Location Permission Modal ──────────────────────────────────────── -->
+  <div id="loc-permission-modal" class="perm-modal-backdrop" role="dialog" aria-modal="true"
+    aria-labelledby="perm-modal-title">
+    <div class="perm-modal">
+      <div class="perm-modal-icon">📍</div>
+      <h2 class="perm-modal-title" id="perm-modal-title">Allow Location Access?</h2>
+      <p class="perm-modal-desc">
+        <strong>SkyCast</strong> would like to use your device's location to automatically show you local weather.
+        <br><br>
+        Your location is <strong>only used to fetch weather data</strong> and is never stored or shared.
+      </p>
+      <ul class="perm-modal-features">
+        <li>🌡️ Instant local weather</li>
+        <li>⏱️ Accurate hourly &amp; daily forecast</li>
+        <li>🌿 Real-time AQI for your area</li>
+        <li>🔒 No data stored on any server</li>
+      </ul>
+      <div class="perm-modal-actions">
+        <button id="loc-allow-btn" class="perm-btn perm-btn-allow">
+          <span>📍</span> Allow Location
+        </button>
+        <button id="loc-deny-btn" class="perm-btn perm-btn-deny">
+          <span>🚫</span> Don't Allow
+        </button>
+      </div>
+      <button id="loc-skip-btn" class="perm-btn-skip">Search city manually instead →</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════ HEADER ═══════════════════════════════════════════ -->
+  <header class="site-header">
+    <a href="#" class="logo" aria-label="SkyCast Home">
+      <span class="logo-icon">🌤️</span>
+      <span class="logo-text">SkyCast</span>
+    </a>
+
+    <!-- Search -->
+    <div class="search-container" role="search">
+      <div class="search-row">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="search-input" placeholder="Search city, country…" autocomplete="off"
+          aria-label="Search for a city" />
+        <button id="gps-btn" title="Use my location" aria-label="Detect my location">📍</button>
+      </div>
+
+      <!-- Dropdown -->
+      <div id="search-dropdown" class="search-dropdown" role="listbox">
+        <div class="search-dropdown-inner">
+          <div id="recent-searches"></div>
+          <div id="search-results"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="header-actions">
+      <button id="unit-toggle" class="hdr-btn" title="Toggle °C/°F">°C / °F</button>
+      <button id="theme-toggle" class="hdr-btn icon-btn" title="Toggle dark/light mode">☀️</button>
+    </div>
+  </header>
+
+  <!-- ══════════════════ PAGE CONTENT ════════════════════════════════════ -->
+  <div class="page-wrapper">
+
+    <!-- ── Location Banner ───────────────────────────────────────────────── -->
+    <div class="location-banner">
+      <div class="location-info">
+        <div class="location-name">
+          <span id="loc-name">–</span>
+          <button id="fav-btn" title="Add to favorites" aria-label="Toggle favorite">☆</button>
+        </div>
+        <div class="location-meta">
+          <span id="loc-country"></span>
+          <span>📌 <span id="loc-coords">–</span></span>
+        </div>
+      </div>
+      <div class="loc-condition">
+        <span id="header-condition-icon"></span>
+      </div>
+      <div class="loc-time-block">
+        <div id="loc-time" class="loc-time">–</div>
+        <div id="loc-date" class="loc-date">–</div>
+      </div>
+    </div>
+
+    <!-- ── Favorites Bar ─────────────────────────────────────────────────── -->
+    <div class="favorites-section">
+      <div class="favorites-label">⭐ Favorite Cities</div>
+      <div id="favorites-bar">
+        <span class="empty-fav">No favorite cities yet. Click ☆ to add one.</span>
+      </div>
+    </div>
+
+    <!-- ══════════ MAIN 2-COLUMN GRID ═══════════════════════════════════ -->
+    <div class="main-grid">
+
+      <!-- ──────── LEFT COLUMN ──────────────────────────────────────────── -->
+      <div class="left-col">
+
+        <!-- Current Weather -->
+        <div class="card current-card">
+          <p class="card-title">🌡️ Current Conditions</p>
+          <span id="current-icon">–</span>
+          <p id="current-condition">–</p>
+          <div id="current-temp">–</div>
+          <p id="current-feels">–</p>
+          <div class="current-stats">
+            <div class="stat-item">
+              <div class="stat-label">Humidity</div>
+              <div class="stat-value" id="current-humidity">–</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Clouds</div>
+              <div class="stat-value" id="current-cloud">–</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Precip</div>
+              <div class="stat-value" id="current-precip">–</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sunrise / Sunset -->
+        <div class="card" style="margin-top:16px">
+          <p class="card-title">🌅 Sunrise &amp; Sunset</p>
+          <svg class="sun-arc-svg" viewBox="0 0 100 55" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ff9800" />
+                <stop offset="50%" stop-color="#ffd93d" />
+                <stop offset="100%" stop-color="#ff6b35" />
+              </linearGradient>
+            </defs>
+            <!-- Horizon line -->
+            <line x1="5" y1="52" x2="95" y2="52" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+            <!-- Arc path -->
+            <path class="sun-arc-path" d="M5,52 A45,45 0 0,1 95,52" />
+            <!-- Sun dot -->
+            <circle id="sun-dot" cx="5" cy="52" r="5" fill="#ffd93d" filter="url(#glow)" />
+            <defs>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+          </svg>
+          <div class="sunrise-sunset-row">
+            <div class="sun-time-block">
+              <span class="sun-label">Sunrise</span>
+              <span class="sun-time" id="sunrise-time">–</span>
+            </div>
+            <div>
+              <p class="day-length" id="day-length"></p>
+            </div>
+            <div class="sun-time-block">
+              <span class="sun-label">Sunset</span>
+              <span class="sun-time" id="sunset-time">–</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- UV Index -->
+        <div class="card detail-card" style="margin-top:16px">
+          <p class="card-title">☀️ UV Index</p>
+          <div class="uvi-display">
+            <span id="uvi-value">–</span>
+            <span id="uvi-label">–</span>
+          </div>
+          <div class="metric-bar">
+            <div class="metric-bar-fill" id="uvi-bar-fill" style="width:0%;background:#4caf50"></div>
+          </div>
+        </div>
+
+        <!-- Lifestyle Scores -->
+        <div class="card" style="margin-top:16px">
+          <p class="card-title">🏅 Outdoor Activity Scores</p>
+          <div class="scores-grid">
+            <div id="score-running"></div>
+            <div id="score-cycling"></div>
+            <div id="score-gardening"></div>
+            <div id="score-outdoor"></div>
+            <div id="score-beach"></div>
+          </div>
+        </div>
+
+      </div><!-- end left-col -->
+
+      <!-- ──────── RIGHT COLUMN ─────────────────────────────────────────── -->
+      <div class="right-col">
+
+        <!-- Smart AI Summary -->
+        <div class="card smart-card">
+          <p class="card-title">🤖 Smart Weather Summary</p>
+          <p id="smart-summary-text">Loading…</p>
+        </div>
+
+        <!-- Hourly Forecast (scroll) -->
+        <div class="card">
+          <p class="card-title">⏱️ Hourly Forecast</p>
+          <div id="hourly-scroll" role="list" aria-label="Hourly forecast"></div>
+        </div>
+
+        <!-- Charts -->
+        <div class="card">
+          <p class="card-title">📊 Charts</p>
+          <div class="chart-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="temp" role="tab" aria-selected="true">🌡️ Temperature</button>
+            <button class="tab-btn" data-tab="precip" role="tab" aria-selected="false">🌧️ Precipitation</button>
+            <button class="tab-btn" data-tab="weekly" role="tab" aria-selected="false">📅 14-Day</button>
+          </div>
+          <div id="tab-temp" class="tab-panel active">
+            <div class="chart-wrapper"><canvas id="hourly-temp-chart"></canvas></div>
+          </div>
+          <div id="tab-precip" class="tab-panel">
+            <div class="chart-wrapper"><canvas id="hourly-precip-chart"></canvas></div>
+          </div>
+          <div id="tab-weekly" class="tab-panel">
+            <div class="chart-wrapper"><canvas id="weekly-chart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- 7/14-Day Forecast -->
+        <div class="card">
+          <p class="card-title">📅 14-Day Forecast</p>
+          <div id="daily-cards" role="list"></div>
+        </div>
+
+      </div><!-- end right-col -->
+
+    </div><!-- end main-grid -->
+
+    <!-- ══════════ DETAILS ROW ═══════════════════════════════════════════ -->
+    <h2 class="section-title">🔬 Detailed Conditions</h2>
+    <div class="stats-grid">
+
+      <!-- Wind -->
+      <div class="card detail-card">
+        <p class="card-title">💨 Wind</p>
+        <div class="wind-compass">
+          <div class="compass-rose" aria-label="Wind compass">
+            <span class="compass-label n">N</span>
+            <span class="compass-label s">S</span>
+            <span class="compass-label e">E</span>
+            <span class="compass-label w">W</span>
+            <span id="wind-arrow">➤</span>
+          </div>
+          <div class="wind-stats">
+            <div class="wind-row"><span>Speed</span> <span id="wind-speed">–</span></div>
+            <div class="wind-row"><span>Direction</span><span id="wind-dir">–</span></div>
+            <div class="wind-row"><span>Gusts</span> <span id="wind-gusts">–</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Humidity & Dew Point -->
+      <div class="card detail-card">
+        <p class="card-title">💧 Humidity &amp; Dew Point</p>
+        <div class="big-value" id="humidity-value">–</div>
+        <div class="metric-bar">
+          <div class="metric-bar-fill" id="humidity-bar-fill" style="width:0%;background:var(--accent-blue)"></div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="sub-label">Dew Point: <strong id="dewpoint-value">–</strong></div>
+          <div class="sub-label" id="dewpoint-comfort"></div>
+        </div>
+      </div>
+
+      <!-- Pressure -->
+      <div class="card detail-card">
+        <p class="card-title">🌀 Pressure</p>
+        <div class="big-value" id="pressure-value">–</div>
+        <div class="sub-label" id="pressure-trend">–</div>
+      </div>
+
+      <!-- Visibility -->
+      <div class="card detail-card">
+        <p class="card-title">👁️ Visibility</p>
+        <div class="big-value" id="visibility-value">–</div>
+        <div class="sub-label" id="visibility-quality">–</div>
+        <div class="metric-bar" style="margin-top:10px">
+          <div class="metric-bar-fill" id="vis-bar-fill" style="width:0%;background:var(--accent-teal)"></div>
+        </div>
+      </div>
+
+    </div><!-- end stats-grid -->
+
+    <!-- ══════════ AIR QUALITY ════════════════════════════════════════════ -->
+    <h2 class="section-title">🌿 Air Quality &amp; Pollen</h2>
+    <div class="card" id="aq-section">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap">
+
+        <!-- AQI left block -->
+        <div>
+          <p class="card-title">🏭 European AQI</p>
+          <div class="aqi-gauge">
+            <span id="aqi-value">–</span>
+            <span id="aqi-label">–</span>
+          </div>
+          <div class="metric-bar">
+            <div class="metric-bar-fill" id="aqi-bar-fill" style="width:0%"></div>
+          </div>
+
+          <div class="pollutants-grid" style="margin-top:20px">
+            <div class="pollutant-item">
+              <div class="p-name">PM2.5</div>
+              <div class="p-value" id="pm25-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+            <div class="pollutant-item">
+              <div class="p-name">PM10</div>
+              <div class="p-value" id="pm10-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+            <div class="pollutant-item">
+              <div class="p-name">O₃</div>
+              <div class="p-value" id="o3-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+            <div class="pollutant-item">
+              <div class="p-name">NO₂</div>
+              <div class="p-value" id="no2-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+            <div class="pollutant-item">
+              <div class="p-name">SO₂</div>
+              <div class="p-value" id="so2-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+            <div class="pollutant-item">
+              <div class="p-name">CO</div>
+              <div class="p-value" id="co-val">–</div>
+              <div class="p-unit">μg/m³</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pollen right block -->
+        <div>
+          <p class="card-title">🌸 Pollen Levels</p>
+          <div class="pollen-grid">
+            <div id="grass-pollen"><span>🌿 Grass</span><span>–</span></div>
+            <div id="birch-pollen"><span>🌳 Birch</span><span>–</span></div>
+            <div id="alder-pollen"><span>🌲 Alder</span><span>–</span></div>
+            <div id="ragweed-pollen"><span>🌾 Ragweed</span><span>–</span></div>
+            <div id="mugwort-pollen"><span>🌻 Mugwort</span><span>–</span></div>
+            <div id="olive-pollen"><span>🫒 Olive</span><span>–</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════ INTERACTIVE MAP ════════════════════════════════════════ -->
+    <h2 class="section-title">🗺️ Interactive Weather Map</h2>
+    <div class="card">
+      <div class="map-controls">
+        <button class="map-layer-btn active" data-layer="none">🗺️ Base</button>
+        <button class="map-layer-btn" data-layer="precipitation">🌧️ Radar</button>
+      </div>
+      <div id="weather-map" role="application" aria-label="Weather map"></div>
+    </div>
+
+    <!-- ══════════ HISTORICAL ═════════════════════════════════════════════ -->
+    <h2 class="section-title">📜 Historical Weather Lookup</h2>
+    <div class="card">
+      <div class="hist-controls">
+        <label for="hist-start">From:</label>
+        <input type="date" id="hist-start" aria-label="Start date" />
+        <label for="hist-end">To:</label>
+        <input type="date" id="hist-end" aria-label="End date" />
+        <button id="hist-load-btn" class="btn-primary">Load Data</button>
+      </div>
+      <div class="hist-table-wrapper">
+        <table class="hist-table" aria-label="Historical weather data">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Condition</th>
+              <th>Max Temp</th>
+              <th>Min Temp</th>
+              <th>Precipitation</th>
+              <th>Max Wind</th>
+            </tr>
+          </thead>
+          <tbody id="hist-table-body">
+            <tr>
+              <td colspan="6" style="text-align:center;color:var(--text-muted)">Select a date range and click Load Data.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- end page-wrapper -->
+
+  <!-- ══════════════════ FOOTER ════════════════════════════════════════════ -->
+  <footer class="site-footer">
+    <p>⛅ <strong>SkyCast</strong> — Powered by <a href="https://open-meteo.com" target="_blank"
+        rel="noopener">Open-Meteo</a> &amp; <a href="https://www.openstreetmap.org" target="_blank"
+        rel="noopener">OpenStreetMap</a></p>
+    <p>Data: Open-Meteo API (forecast, air quality, historical) • Geocoding: Open-Meteo Geocoding API • Radar:
+      RainViewer</p>
+    <p style="margin-top:8px;color:var(--text-muted);font-size:0.75rem">No login required • All preferences saved
+      locally in your browser</p>
+  </footer>
+
+  <!-- ══════════════════ SCRIPTS ════════════════════════════════════════════ -->
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <!-- App modules (order matters) -->
+  <script src="js/api.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/maps.js"></script>
+  <script src="js/app.js"></script>
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => { });
+      });
+    }
+  </script>
+</body>
+
+</html>
